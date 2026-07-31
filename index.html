@@ -150,6 +150,21 @@
     backdrop-filter: blur(6px);
   }
   .icon-btn:active { transform: scale(0.94); }
+  #topbarRight { display: flex; align-items: center; gap: 8px; }
+  #volWrap {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    background: rgba(0,0,0,0.35);
+    padding: 8px 12px;
+    border-radius: 999px;
+    backdrop-filter: blur(6px);
+  }
+  #volSlider {
+    width: 80px;
+    accent-color: #fff;
+    cursor: pointer;
+  }
 </style>
 </head>
 <body>
@@ -168,7 +183,14 @@
 <!-- 上部バー -->
 <div id="topbar">
   <button class="icon-btn" id="backBtn">✕ 閉じる</button>
-  <button class="icon-btn" id="muteBtn">🔇 ミュート中</button>
+  <div id="topbarRight">
+    <div id="volWrap">
+      <span style="font-size:13px;">🔊</span>
+      <input type="range" id="volSlider" min="0" max="100" value="100">
+    </div>
+    <button class="icon-btn" id="muteBtn">🔇 ミュート中</button>
+    <button class="icon-btn" id="fsBtn">⛶ 全画面</button>
+  </div>
 </div>
 
 <!-- フィード -->
@@ -183,10 +205,45 @@
   const backBtn  = document.getElementById('backBtn');
   const muteBtn  = document.getElementById('muteBtn');
   const shuffleCk= document.getElementById('shuffle');
+  const fsBtn    = document.getElementById('fsBtn');
+  const volSlider= document.getElementById('volSlider');
 
   let muted = true;          // 自動再生のため初期はミュート
+  let volume = 1;
   let objectUrls = [];
   let observer = null;
+
+  // ---- 全画面 ----
+  const fsSupported = document.documentElement.requestFullscreen
+    || document.documentElement.webkitRequestFullscreen;
+  if (!fsSupported) fsBtn.style.display = 'none'; // iPhone Safariは非対応のため非表示
+
+  fsBtn.addEventListener('click', () => {
+    const el = document.documentElement;
+    if (document.fullscreenElement || document.webkitFullscreenElement) {
+      (document.exitFullscreen || document.webkitExitFullscreen).call(document);
+    } else {
+      (el.requestFullscreen || el.webkitRequestFullscreen).call(el);
+    }
+  });
+  const onFsChange = () => {
+    const active = document.fullscreenElement || document.webkitFullscreenElement;
+    fsBtn.textContent = active ? '⛶ 全画面解除' : '⛶ 全画面';
+  };
+  document.addEventListener('fullscreenchange', onFsChange);
+  document.addEventListener('webkitfullscreenchange', onFsChange);
+
+  // ---- 音量 ----
+  volSlider.addEventListener('input', () => {
+    volume = volSlider.value / 100;
+    feed.querySelectorAll('video').forEach(v => v.volume = volume);
+    // スライダーを動かしたらミュートも解除する
+    if (muted && volume > 0) {
+      muted = false;
+      muteBtn.textContent = '🔊 音声ON';
+      feed.querySelectorAll('video').forEach(v => v.muted = false);
+    }
+  });
 
   fileInput.addEventListener('change', () => {
     let files = Array.from(fileInput.files).filter(f => f.type.startsWith('video/') || /\.(mp4|mov|webm|m4v)$/i.test(f.name));
@@ -217,6 +274,7 @@
       video.muted = muted;
       video.playsInline = true;
       video.setAttribute('playsinline', '');
+      video.volume = volume;
       video.preload = (i < 2) ? 'auto' : 'metadata';
 
       const name = document.createElement('div');
@@ -253,6 +311,7 @@
         if (entry.intersectionRatio >= 0.6) {
           entry.target.classList.remove('paused');
           video.muted = muted;
+          video.volume = volume;
           video.currentTime = 0;
           video.play().catch(() => {});
           // 次の動画を先読み
