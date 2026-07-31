@@ -1,0 +1,299 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<title>Swipe Video Viewer</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body {
+    height: 100%;
+    background: #000;
+    color: #fff;
+    font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Noto Sans JP", sans-serif;
+    overflow: hidden;
+    overscroll-behavior: none;
+  }
+
+  /* ---- 起動画面 ---- */
+  #picker {
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 20px;
+    padding: 24px;
+    text-align: center;
+  }
+  #picker h1 {
+    font-size: 22px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+  }
+  #picker p {
+    font-size: 13px;
+    color: #999;
+    line-height: 1.7;
+  }
+  .pick-btn {
+    display: inline-block;
+    background: #fff;
+    color: #000;
+    font-size: 16px;
+    font-weight: 700;
+    padding: 14px 32px;
+    border-radius: 999px;
+    border: none;
+    cursor: pointer;
+  }
+  .pick-btn:active { transform: scale(0.96); }
+  #shuffleWrap {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 14px;
+    color: #ccc;
+    user-select: none;
+  }
+  #shuffleWrap input { width: 18px; height: 18px; accent-color: #fff; }
+
+  /* ---- フィード ---- */
+  #feed {
+    display: none;
+    height: 100%;
+    overflow-y: scroll;
+    scroll-snap-type: y mandatory;
+    scrollbar-width: none;
+  }
+  #feed::-webkit-scrollbar { display: none; }
+
+  .slide {
+    position: relative;
+    height: 100%;
+    width: 100%;
+    scroll-snap-align: start;
+    scroll-snap-stop: always;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #000;
+  }
+  .slide video {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+  }
+
+  /* ---- オーバーレイUI ---- */
+  .filename {
+    position: absolute;
+    left: 16px;
+    bottom: calc(24px + env(safe-area-inset-bottom));
+    max-width: 70%;
+    font-size: 13px;
+    color: rgba(255,255,255,0.85);
+    text-shadow: 0 1px 3px rgba(0,0,0,0.8);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    pointer-events: none;
+  }
+  .counter {
+    position: absolute;
+    right: 16px;
+    bottom: calc(24px + env(safe-area-inset-bottom));
+    font-size: 12px;
+    color: rgba(255,255,255,0.7);
+    text-shadow: 0 1px 3px rgba(0,0,0,0.8);
+    pointer-events: none;
+  }
+  .paused-icon {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 72px;
+    height: 72px;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    background: rgba(0,0,0,0.45);
+    border-radius: 50%;
+    pointer-events: none;
+  }
+  .paused-icon svg { width: 32px; height: 32px; fill: #fff; margin-left: 4px; }
+  .slide.paused .paused-icon { display: flex; }
+
+  /* ---- 上部バー ---- */
+  #topbar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    display: none;
+    justify-content: space-between;
+    align-items: center;
+    padding: calc(10px + env(safe-area-inset-top)) 14px 10px;
+    z-index: 10;
+    background: linear-gradient(rgba(0,0,0,0.5), transparent);
+  }
+  .icon-btn {
+    background: rgba(0,0,0,0.35);
+    border: none;
+    color: #fff;
+    font-size: 13px;
+    font-weight: 600;
+    padding: 8px 14px;
+    border-radius: 999px;
+    cursor: pointer;
+    backdrop-filter: blur(6px);
+  }
+  .icon-btn:active { transform: scale(0.94); }
+</style>
+</head>
+<body>
+
+<!-- 起動画面 -->
+<div id="picker">
+  <h1>Swipe Video Viewer</h1>
+  <p>動画ファイルを選ぶと、上下スワイプで切り替え・<br>自動ループ再生できます。<br>ファイルは端末内で再生されるだけで、どこにも送信されません。</p>
+  <label id="shuffleWrap">
+    <input type="checkbox" id="shuffle"> シャッフル再生
+  </label>
+  <label class="pick-btn" for="fileInput">動画を選ぶ</label>
+  <input type="file" id="fileInput" accept="video/*" multiple style="position:absolute; width:1px; height:1px; opacity:0; overflow:hidden;">
+</div>
+
+<!-- 上部バー -->
+<div id="topbar">
+  <button class="icon-btn" id="backBtn">✕ 閉じる</button>
+  <button class="icon-btn" id="muteBtn">🔇 ミュート中</button>
+</div>
+
+<!-- フィード -->
+<div id="feed"></div>
+
+<script>
+(() => {
+  const picker   = document.getElementById('picker');
+  const feed     = document.getElementById('feed');
+  const topbar   = document.getElementById('topbar');
+  const fileInput= document.getElementById('fileInput');
+  const backBtn  = document.getElementById('backBtn');
+  const muteBtn  = document.getElementById('muteBtn');
+  const shuffleCk= document.getElementById('shuffle');
+
+  let muted = true;          // 自動再生のため初期はミュート
+  let objectUrls = [];
+  let observer = null;
+
+  fileInput.addEventListener('change', () => {
+    let files = Array.from(fileInput.files).filter(f => f.type.startsWith('video/') || /\.(mp4|mov|webm|m4v)$/i.test(f.name));
+    if (files.length === 0) return;
+    if (shuffleCk.checked) {
+      for (let i = files.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [files[i], files[j]] = [files[j], files[i]];
+      }
+    }
+    buildFeed(files);
+  });
+
+  function buildFeed(files) {
+    cleanup();
+    feed.innerHTML = '';
+
+    files.forEach((file, i) => {
+      const url = URL.createObjectURL(file);
+      objectUrls.push(url);
+
+      const slide = document.createElement('div');
+      slide.className = 'slide';
+
+      const video = document.createElement('video');
+      video.src = url;
+      video.loop = true;
+      video.muted = muted;
+      video.playsInline = true;
+      video.setAttribute('playsinline', '');
+      video.preload = (i < 2) ? 'auto' : 'metadata';
+
+      const name = document.createElement('div');
+      name.className = 'filename';
+      name.textContent = file.name;
+
+      const counter = document.createElement('div');
+      counter.className = 'counter';
+      counter.textContent = (i + 1) + ' / ' + files.length;
+
+      const pausedIcon = document.createElement('div');
+      pausedIcon.className = 'paused-icon';
+      pausedIcon.innerHTML = '<svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>';
+
+      // タップで再生/一時停止
+      slide.addEventListener('click', () => {
+        if (video.paused) {
+          video.play();
+          slide.classList.remove('paused');
+        } else {
+          video.pause();
+          slide.classList.add('paused');
+        }
+      });
+
+      slide.append(video, name, counter, pausedIcon);
+      feed.appendChild(slide);
+    });
+
+    // 画面内のスライドだけ再生
+    observer = new IntersectionObserver(entries => {
+      entries.forEach(entry => {
+        const video = entry.target.querySelector('video');
+        if (entry.intersectionRatio >= 0.6) {
+          entry.target.classList.remove('paused');
+          video.muted = muted;
+          video.currentTime = 0;
+          video.play().catch(() => {});
+          // 次の動画を先読み
+          const next = entry.target.nextElementSibling;
+          if (next) next.querySelector('video').preload = 'auto';
+        } else {
+          video.pause();
+        }
+      });
+    }, { threshold: [0, 0.6] });
+
+    feed.querySelectorAll('.slide').forEach(s => observer.observe(s));
+
+    picker.style.display = 'none';
+    feed.style.display = 'block';
+    topbar.style.display = 'flex';
+    feed.scrollTop = 0;
+  }
+
+  muteBtn.addEventListener('click', () => {
+    muted = !muted;
+    muteBtn.textContent = muted ? '🔇 ミュート中' : '🔊 音声ON';
+    feed.querySelectorAll('video').forEach(v => v.muted = muted);
+  });
+
+  backBtn.addEventListener('click', () => {
+    cleanup();
+    feed.style.display = 'none';
+    topbar.style.display = 'none';
+    picker.style.display = 'flex';
+    fileInput.value = '';
+  });
+
+  function cleanup() {
+    if (observer) { observer.disconnect(); observer = null; }
+    feed.querySelectorAll('video').forEach(v => { v.pause(); v.removeAttribute('src'); v.load(); });
+    objectUrls.forEach(u => URL.revokeObjectURL(u));
+    objectUrls = [];
+    feed.innerHTML = '';
+  }
+})();
+</script>
+</body>
+</html>
