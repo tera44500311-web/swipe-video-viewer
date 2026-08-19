@@ -33,6 +33,11 @@
   }
   #empty p{color:var(--dim);font-size:13px;line-height:1.7;max-width:32ch}
   #empty.hide{display:none}
+  #shuffleWrap{
+    display:flex;align-items:center;gap:8px;
+    font-size:13px;color:var(--dim);user-select:none;cursor:pointer;
+  }
+  #shuffleWrap input{width:16px;height:16px;accent-color:var(--accent);cursor:pointer}
 
   /* elevation gauge: where you are looking inside the frame */
   #gauge{
@@ -111,6 +116,9 @@
 
   <div id="empty">
     <label class="btn primary" for="file">動画を選ぶ（複数可）</label>
+    <label id="shuffleWrap">
+      <input type="checkbox" id="shuffle"> シャッフル再生
+    </label>
     <p>端末を傾けると、映像の見えている範囲が動きます。<br>複数の動画を選ぶと、素早い縦スワイプで<br>次の動画・前の動画に切り替えられます。</p>
   </div>
 
@@ -211,9 +219,17 @@
     if(!first) showHint((idx+1)+'/'+playlist.length+'　'+playlist[idx].name,1800);
   }
 
+  const shuffleCk=document.getElementById('shuffle');
+
   fileEl.addEventListener('change',()=>{
     const fs=Array.from(fileEl.files||[]).filter(f=>f.type.startsWith('video/')||/\.(mp4|mov|webm|m4v)$/i.test(f.name));
     if(!fs.length) return;
+    if(shuffleCk.checked){
+      for(let i=fs.length-1;i>0;i--){
+        const j=Math.floor(Math.random()*(i+1));
+        [fs[i],fs[j]]=[fs[j],fs[i]];
+      }
+    }
     urls.forEach(u=>{ if(u) URL.revokeObjectURL(u); });
     urls=[]; playlist=fs;
     loadVideo(0, true);
